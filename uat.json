@@ -1,0 +1,12 @@
+{
+    "repo": {
+        "path": "D:/Users/gaurahari/Projects/krishna-life",
+        "earlier_hash": "912aeece23cfb371c3648ad35894085a13d705d7"
+    },
+    "ftp": {
+        "host": "",
+        "username": "",
+        "password": "",
+        "target_dir": "/uat-app"
+    }
+}
