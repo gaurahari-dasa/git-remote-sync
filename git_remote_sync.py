@@ -98,7 +98,7 @@ def run_full_pipeline(config_file):
     """Run complete pipeline: pack then upload."""
     config = load_config(config_file)
     repo_path = config["repo"]["path"]
-    earlier_hash = config["repo"]["earlier_hash"]
+    package_hash = config["repo"].get("package_hash", "")
     
     ftp_config = config.get("ftp", {})
     ftp_host = ftp_config.get("host")
@@ -112,8 +112,8 @@ def run_full_pipeline(config_file):
     
     try:
         # Get commit hashes from user
-        commit1 = input(f"earlier hash{f' ({earlier_hash})' if earlier_hash else ''}: ").strip()
-        commit1 = commit1 if len(commit1) else earlier_hash
+        commit1 = input(f"earlier hash{f' ({package_hash})' if package_hash else ''}: ").strip()
+        commit1 = commit1 if len(commit1) else package_hash
         commit2 = input("present hash (HEAD): ").strip()
         commit2 = commit2 if len(commit2) else 'HEAD'
         
@@ -140,18 +140,13 @@ def run_full_pipeline(config_file):
             print("Operation cancelled by user.")
             return True
         
-        # Create upload package
+        # Create upload package (this updates package_hash in config)
         from packer import create_upload_package
         create_upload_package(changed_files, repo_path, commit2, "upload-package")
         
         # Upload files
         from uploader import upload_via_ftp
         upload_via_ftp("upload-package", "upload-spec.json", ftp_host, ftp_user, ftp_pass, ftp_target_dir)
-        
-        # Update config with new earlier_hash
-        config["repo"]["earlier_hash"] = get_git_commit_hash(repo_path, commit2)
-        with open(config_file, "w") as f:
-            json.dump(config, f, indent=4)
         
         print("Pipeline completed successfully.")
         return True

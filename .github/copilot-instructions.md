@@ -14,8 +14,10 @@
 
 ### Configuration-Driven Design
 - All settings in JSON files (`cpp-website-uat.json`, `prod.json`)
-- Required fields: `repo.path`, `repo.earlier_hash`, `ftp.{host,username,password,target_dir}`
-- The `earlier_hash` acts as baseline and updates after successful upload (auto-persisted)
+- Required fields: `repo.path`, `ftp.{host,username,password,target_dir}`
+- The `package_hash` tracks the last commit that was packaged and uploaded
+- `package_hash` updates immediately after successful package creation
+- `package_hash` is also stored in `upload-spec.json` for reference
 
 ### Upload Package Structure
 ```
@@ -23,7 +25,12 @@ upload-package/
   1                    # Numbered file (file content)
   2                    # Numbered file (file content)
   3                    # Numbered file (file content)
-  upload-spec.json     # Mapping: {"1": "path/to/file1.js", "2": "path/to/file2.css", ...}
+  upload-spec.json     # {
+                       #   "__package_hash__": "abc123def456...",
+                       #   "1": "path/to/file1.js",
+                       #   "2": "path/to/file2.css",
+                       #   "3": "path/to/file3.html"
+                       # }
 ```
 
 ## Developer Workflows
@@ -79,13 +86,14 @@ python uploader.py
 
 ## Important Implementation Details
 
-### The `earlier_hash` Update Pattern
+### The `package_hash` Update Pattern
 ```python
-config["repo"]["earlier_hash"] = get_git_commit_hash(repo_path, commit2)
+config["repo"]["package_hash"] = full_commit_hash
 ```
-- Only updates AFTER successful package creation AND upload
-- Enables incremental deploys — next run automatically compares from last deployed commit
-- If upload fails mid-process, config remains unchanged (supports retry)
+- Updates **immediately after successful package creation** (not after upload)
+- Enables incremental deploys — next packer run defaults to comparing from last packaged commit
+- Stored in `upload-spec.json` as `__package_hash__` metadata for audit trail
+- If packing fails, config remains unchanged (supports retry)
 
 ### Numbered File Advantages
 - Portable across systems (no special character issues)
@@ -94,9 +102,10 @@ config["repo"]["earlier_hash"] = get_git_commit_hash(repo_path, commit2)
 - Independent of source file extensions
 
 ### Path Mapping in upload-spec.json
-- All paths are relative to FTP target directory
+- Includes `__package_hash__` metadata entry for audit trail
+- All other paths are relative to FTP target directory
 - Windows path separators converted to `/` for FTP compatibility
-- Format: `{"1": "resources/js/app.js", "2": "css/styles.css", ...}`
+- Format: `{"__package_hash__": "abc123...", "1": "resources/js/app.js", "2": "css/styles.css", ...}`
 
 ## Common Modifications
 

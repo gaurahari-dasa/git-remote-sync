@@ -59,6 +59,29 @@ def get_file_from_git(repo_path, commit_hash, file_path):
     return result.stdout
 
 
+# -------------------- Get Git Commit Hash --------------------
+def get_git_commit_hash(repo_path: str, alias="HEAD"):
+    """
+    Returns the SHA-1 hash of the specified Git commit alias.
+    
+    Parameters:
+    alias (str): A Git commit reference like 'HEAD', 'HEAD~1', 'HEAD^', etc.
+    
+    Returns:
+    str: SHA-1 hash of the specified commit.
+    """
+    try:
+        commit_hash = (
+            subprocess.check_output(["git", "rev-parse", alias], cwd=repo_path)
+            .decode("utf-8")
+            .strip()
+        )
+        return commit_hash
+    except subprocess.CalledProcessError as e:
+        print(f"Error retrieving commit hash for alias '{alias}':", e)
+        return None
+
+
 # -------------------- Create Upload Package --------------------
 def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     """
@@ -69,14 +92,22 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     repo_path: Path to the Git repository
     commit_hash: Git commit hash to retrieve files from
     package_dir: Directory to create upload package in
+    
+    Returns:
+    Tuple of (upload_spec dict, full commit hash)
     """
     # Clean up and recreate package directory
     if os.path.exists(package_dir):
         shutil.rmtree(package_dir)
     os.makedirs(package_dir, exist_ok=True)
     
+    # Resolve commit hash to full SHA-1
+    full_commit_hash = get_git_commit_hash(repo_path, commit_hash)
+    if not full_commit_hash:
+        raise Exception(f"Could not resolve commit hash: {commit_hash}")
+    
     # Create upload specification mapping
-    upload_spec = {}
+    upload_spec = {"__package_hash__": full_commit_hash}
     file_counter = 1
     
     for file_path in file_list:
@@ -108,9 +139,10 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     
     print(f"\nUpload package created in '{package_dir}'")
     print(f"Specification file: {UPLOAD_SPEC_FILE}")
-    print(f"Total files packaged: {len(upload_spec)}")
+    print(f"Package hash: {full_commit_hash}")
+    print(f"Total files packaged: {len(upload_spec) - 1}")
     
-    return upload_spec
+    return upload_spec, full_commit_hash
 
 
 # -------------------- Main Execution --------------------
@@ -126,15 +158,15 @@ def main():
         config = json.load(f)
     
     repo_path = config["repo"]["path"]
-    earlier_hash = config["repo"]["earlier_hash"]
+    package_hash = config["repo"].get("package_hash", "")
     
     if not repo_path:
         print("Missing 'repo.path' in configuration file.")
         sys.exit(1)
     
     # Get commit hashes from user
-    commit1 = input(f"earlier hash{f' ({earlier_hash})' if earlier_hash else ''}: ").strip()
-    commit1 = commit1 if len(commit1) else earlier_hash
+    commit1 = input(f"earlier hash{f' ({package_hash})' if package_hash else ''}: ").strip()
+    commit1 = commit1 if len(commit1) else package_hash
     commit2 = input("present hash (HEAD): ").strip()
     commit2 = commit2 if len(commit2) else 'HEAD'
     
@@ -165,7 +197,14 @@ def main():
             sys.exit(0)
         
         # Create upload package
-        create_upload_package(changed_files, repo_path, commit2, UPLOAD_PACKAGE_DIR)
+        upload_spec, full_commit_hash = create_upload_package(changed_files, repo_path, commit2, UPLOAD_PACKAGE_DIR)
+        
+        # Update package_hash in config file
+        config["repo"]["package_hash"] = full_commit_hash
+        with open(config_file, "w") as f:
+            json.dump(config, f, indent=4)
+        
+        print(f"\nConfiguration updated with package_hash: {full_commit_hash}")
         
     except Exception as e:
         print(f"Error: {e}")
