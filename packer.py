@@ -106,8 +106,11 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     if not full_commit_hash:
         raise Exception(f"Could not resolve commit hash: {commit_hash}")
     
-    # Create upload specification mapping
-    upload_spec = {"__package_hash__": full_commit_hash}
+    # Create upload specification with new structure
+    upload_spec = {
+        "package_hash": full_commit_hash,
+        "files": {}
+    }
     file_counter = 1
     
     for file_path in file_list:
@@ -126,8 +129,8 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
         with open(numbered_filepath, "wb") as f:
             f.write(file_content)
         
-        # Add to specification mapping
-        upload_spec[numbered_filename] = file_path
+        # Add to files mapping
+        upload_spec["files"][numbered_filename] = file_path
         
         print(f"Packaged: {file_path} -> {numbered_filename}")
         file_counter += 1
@@ -140,7 +143,7 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     print(f"\nUpload package created in '{package_dir}'")
     print(f"Specification file: {UPLOAD_SPEC_FILE}")
     print(f"Package hash: {full_commit_hash}")
-    print(f"Total files packaged: {len(upload_spec) - 1}")
+    print(f"Total files packaged: {len(upload_spec['files'])}")
     
     return upload_spec, full_commit_hash
 

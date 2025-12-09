@@ -28,7 +28,9 @@ def upload_via_ftp(package_dir, spec_file, ftp_host, ftp_user, ftp_pass, ftp_tar
     with open(spec_filepath, "r") as f:
         upload_spec = json.load(f)
     
-    if not upload_spec:
+    # Extract files mapping
+    files_mapping = upload_spec.get("files", {})
+    if not files_mapping:
         print("No files to upload.")
         return
     
@@ -40,10 +42,7 @@ def upload_via_ftp(package_dir, spec_file, ftp_host, ftp_user, ftp_pass, ftp_tar
     uploaded_count = 0
     
     try:
-        for numbered_file, target_path in upload_spec.items():
-            # Skip metadata entries
-            if numbered_file.startswith("__"):
-                continue
+        for numbered_file, target_path in files_mapping.items():
             
             try:
                 # Get full path to numbered file
@@ -129,21 +128,20 @@ def main():
     with open(spec_filepath, "r") as f:
         upload_spec = json.load(f)
     
-    # Extract package hash
-    package_hash = upload_spec.get("__package_hash__")
+    # Extract package hash and files
+    package_hash = upload_spec.get("package_hash")
+    files_mapping = upload_spec.get("files", {})
+    
     if package_hash:
         print(f"Package hash: {package_hash}\n")
     
-    # Filter out metadata when displaying files
-    files_to_upload = {k: v for k, v in upload_spec.items() if not k.startswith("__")}
-    
     print("Files to upload:")
-    for numbered_file, target_path in files_to_upload.items():
+    for numbered_file, target_path in files_mapping.items():
         print(f" - {numbered_file} -> {target_path}")
     
     # Confirm before uploading
     confirm = (
-        input(f"\nDo you want to proceed with uploading {len(files_to_upload)} files? (yes/no): ")
+        input(f"\nDo you want to proceed with uploading {len(files_mapping)} files? (yes/no): ")
         .strip()
         .lower()
     )

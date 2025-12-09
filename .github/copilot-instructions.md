@@ -26,10 +26,12 @@ upload-package/
   2                    # Numbered file (file content)
   3                    # Numbered file (file content)
   upload-spec.json     # {
-                       #   "__package_hash__": "abc123def456...",
-                       #   "1": "path/to/file1.js",
-                       #   "2": "path/to/file2.css",
-                       #   "3": "path/to/file3.html"
+                       #   "package_hash": "abc123def456...",
+                       #   "files": {
+                       #     "1": "path/to/file1.js",
+                       #     "2": "path/to/file2.css",
+                       #     "3": "path/to/file3.html"
+                       #   }
                        # }
 ```
 
@@ -92,7 +94,7 @@ config["repo"]["package_hash"] = full_commit_hash
 ```
 - Updates **immediately after successful package creation** (not after upload)
 - Enables incremental deploys — next packer run defaults to comparing from last packaged commit
-- Stored in `upload-spec.json` as `__package_hash__` metadata for audit trail
+- Stored at top-level in upload-spec.json as `package_hash` metadata for audit trail
 - If packing fails, config remains unchanged (supports retry)
 
 ### Numbered File Advantages
@@ -102,10 +104,10 @@ config["repo"]["package_hash"] = full_commit_hash
 - Independent of source file extensions
 
 ### Path Mapping in upload-spec.json
-- Includes `__package_hash__` metadata entry for audit trail
-- All other paths are relative to FTP target directory
+- Top-level `package_hash` field stores the commit hash used for packaging
+- All file paths stored under `files` sub-object, relative to FTP target directory
 - Windows path separators converted to `/` for FTP compatibility
-- Format: `{"__package_hash__": "abc123...", "1": "resources/js/app.js", "2": "css/styles.css", ...}`
+- Format: `{"package_hash": "abc123...", "files": {"1": "resources/js/app.js", "2": "css/styles.css", ...}}`
 
 ## Common Modifications
 
