@@ -1,60 +1,81 @@
 # Copilot Instructions for git-remote-sync
 
 ## Project Overview
-**git-remote-sync** is a deployment automation tool that synchronizes code changes from a Git repository to a remote FTP server. It uses Git diff to identify changed files between commits, stages them locally, then uploads only those deltas to production/staging environments.
+**git-remote-sync** is a deployment automation tool that synchronizes code changes from a Git repository to a remote FTP server. It uses Git diff to identify changed files between commits, creates numbered upload packages, then uploads them to production/staging environments via FTP.
 
-**Core workflow:** Config → Identify changes → User confirmation → Copy → FTP upload → Update config
+**Core workflow:** Git diff → Package creation (numbered files + mapping) → User confirmation → FTP upload → Update config
 
 ## Key Architecture
 
+### Modular Three-Script Design
+1. **git_remote_sync.py** - Main CLI controller with menu-driven interface
+2. **packer.py** - Creates upload packages (numbered files + JSON spec)
+3. **uploader.py** - Uploads packaged files via FTP using spec mapping
+
 ### Configuration-Driven Design
-- All settings stored in JSON files (`cpp-website-uat.json`, `prod.json`)
+- All settings in JSON files (`cpp-website-uat.json`, `prod.json`)
 - Required fields: `repo.path`, `repo.earlier_hash`, `ftp.{host,username,password,target_dir}`
-- The `earlier_hash` acts as the baseline and gets updated after successful uploads (auto-persisted to config)
+- The `earlier_hash` acts as baseline and updates after successful upload (auto-persisted)
 
-### Three-Stage Execution Pipeline
-1. **Get Changed Files** - `get_changed_files()` uses `git diff --name-only <commit1> <commit2>`
-2. **Local Staging** - `copy_files()` recreates directory structure in `ftp_upload/` temp dir
-3. **FTP Upload** - `upload_via_ftp()` creates remote directories and uploads only changed files
-
-### User Interaction Pattern
-- Script prompts for config file path, commit hashes (with defaults), and confirmation
-- Earlier hash defaults from config if provided; present hash defaults to `HEAD`
-- No CLI args — all input via interactive prompts
+### Upload Package Structure
+```
+upload-package/
+  1                    # Numbered file (file content)
+  2                    # Numbered file (file content)
+  3                    # Numbered file (file content)
+  upload-spec.json     # Mapping: {"1": "path/to/file1.js", "2": "path/to/file2.css", ...}
+```
 
 ## Developer Workflows
 
-### Running a Deployment
+### Running via Menu System
 ```bash
 python git_remote_sync.py
-# Follow prompts: config file → earlier hash → present hash → confirm (yes/no)
+# Select: 1=Packer, 2=Uploader, 3=Full Pipeline, 4=Exit
 ```
 
-### Testing a Diff Without Upload
-- Stop after "Do you want to proceed?" prompt
-- Inspect `ftp_upload/` directory to verify correct files staged
-- Inspect git diff manually: `git diff --name-only <hash1> <hash2>`
+### Separate Packer and Uploader Execution
+```bash
+# Create package at one time
+python packer.py
+# config file: cpp-website-uat.json
+# earlier hash: <accepts default or input>
+# present hash: <accepts default or input>
+# Inspect upload-package/ directory
+# Upload at different time
+python uploader.py
+# config file: cpp-website-uat.json
+```
 
-### Resetting Earlier Hash (if deployment fails/reverts)
-- Manually edit JSON config, adjust `earlier_hash` to desired commit
-- Re-run script with corrected baseline
+### Full Pipeline (Pack + Upload in one run)
+- Select option 3 from main menu or run directly via scripts
+- Handles commit hash validation and config updates automatically
+
+### Inspecting Package Before Upload
+- Check `upload-package/upload-spec.json` to verify file mappings
+- Review numbered files to validate content was captured correctly
+- Upload specification is human-readable JSON for debugging
 
 ## Critical Patterns & Conventions
 
-### FTP Directory Navigation
-- Script changes directory with `ftp.cwd()` during upload, returns to target dir after each file
-- Remote dir structure created on-demand: missing directories are created with `ftp.mkd()`
-- Exception suppression on mkdir allows retry without errors
+### Packer (packer.py)
+- Retrieves file content directly from Git using `git show <commit>:<filepath>`
+- Creates numbered files sequentially (1, 2, 3, ...) for portability
+- Generates `upload-spec.json` mapping numbered files to target paths
+- Handles deleted/missing files gracefully with warnings
+- Cleans up previous packages before creating new ones
 
-### Error Handling Philosophy
-- Subprocess errors propagate: `git diff` failures raise exceptions and halt
-- FTP connection errors (login, network) will crash script—no retry logic
-- File copy errors (missing source, permission) silently skip individual files
+### Uploader (uploader.py)
+- Reads `upload-spec.json` to find target paths for each numbered file
+- Normalizes Windows paths to FTP-compatible forward slashes
+- Creates remote directories on-demand with `ftp.mkd()`
+- Exception suppression on mkdir (directory may already exist)
+- Returns to target directory after each file upload
 
-### Relative Paths
-- Git diff returns paths relative to repo root
-- `os.path.relpath()` converts to local paths for staging
-- `ftp_upload/` directory mirrors source repo structure exactly
+### Git Integration
+- `get_changed_files()` uses `git diff --name-only <commit1> <commit2>`
+- `get_git_commit_hash()` resolves aliases like 'HEAD' to full SHA-1
+- Full pipeline updates `earlier_hash` AFTER successful upload
 
 ## Important Implementation Details
 
@@ -62,25 +83,33 @@ python git_remote_sync.py
 ```python
 config["repo"]["earlier_hash"] = get_git_commit_hash(repo_path, commit2)
 ```
-- Only happens AFTER successful FTP upload (in try block, before except)
-- Enables "incremental deploys" — next run automatically compares from last deployed commit
-- If upload fails, config is NOT updated (good for resume logic)
+- Only updates AFTER successful package creation AND upload
+- Enables incremental deploys — next run automatically compares from last deployed commit
+- If upload fails mid-process, config remains unchanged (supports retry)
 
-### Temp Directory Cleanup
-```python
-if os.path.exists(temp_upload_dir):
-    shutil.rmtree(temp_upload_dir)
-```
-- Full cleanup before each staging run — ensures no stale files from previous failed uploads
+### Numbered File Advantages
+- Portable across systems (no special character issues)
+- Compact package structure regardless of path depth
+- Clear file counting for validation
+- Independent of source file extensions
+
+### Path Mapping in upload-spec.json
+- All paths are relative to FTP target directory
+- Windows path separators converted to `/` for FTP compatibility
+- Format: `{"1": "resources/js/app.js", "2": "css/styles.css", ...}`
 
 ## Common Modifications
 
-- **Add pre-upload validation**: Insert checks before `upload_via_ftp()` call
-- **Support multiple config environments**: Load config file path from environment variable instead of prompt
-- **Add rollback**: Capture uploaded file list and implement reverse FTP delete
-- **Extend FTP to S3/cloud**: Replace `upload_via_ftp()` function; keep config/diff logic unchanged
+- **Add file filtering**: Modify `get_changed_files()` to exclude patterns (tests, config, docs)
+- **Package versioning**: Add timestamp or commit hash to `upload-package/` naming
+- **Pre-upload validation**: Insert integrity checks in uploader before FTP operations
+- **Selective upload**: Only upload files matching specific patterns from `upload-spec.json`
+- **Support S3/cloud**: Create new upload backend matching `upload_via_ftp()` signature
+- **Deployment logging**: Track uploaded files to separate log file per deployment
 
 ## Code File References
-- `git_remote_sync.py` - Single monolithic script (148 lines); no separate modules
+- `git_remote_sync.py` - Main controller (~180 lines); menu + pipeline orchestration
+- `packer.py` - Package creation (~177 lines); Git integration + file numbering
+- `uploader.py` - FTP upload (~153 lines); specification mapping + remote directory handling
 - Config examples: `cpp-website-uat.json`, `prod.json`
-- Staging temp dir: `ftp_upload/` (git-ignored)
+- Package dir: `upload-package/` (contains numbered files + spec JSON)
