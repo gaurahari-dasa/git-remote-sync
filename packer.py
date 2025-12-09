@@ -150,8 +150,12 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
 
 # -------------------- Main Execution --------------------
 def main():
-    # Load configuration
-    config_file = input("config file: ")
+    # Get config file from command line argument
+    if len(sys.argv) < 2:
+        print("Usage: python packer.py <config_file>")
+        sys.exit(1)
+    
+    config_file = sys.argv[1]
     
     if not os.path.isfile(config_file):
         print(f"Configuration file '{config_file}' not found.")

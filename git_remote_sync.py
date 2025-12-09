@@ -75,8 +75,8 @@ def run_packer(config_file):
         print("Error: packer.py not found in the same directory.")
         return False
     
-    # Run packer script
-    result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+    # Run packer script with config file argument
+    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
     return result.returncode == 0
 
 
@@ -88,8 +88,8 @@ def run_uploader(config_file):
         print("Error: uploader.py not found in the same directory.")
         return False
     
-    # Run uploader script
-    result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+    # Run uploader script with config file argument
+    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
     return result.returncode == 0
 
 
