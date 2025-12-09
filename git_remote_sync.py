@@ -45,17 +45,43 @@ def get_changed_files(repo_path, commit1, commit2):
     return result.stdout.strip().splitlines()
 
 
-# ------------------ Copy Files ------------------
-def copy_files(file_list, repo_path, temp_upload_dir):
+# ------------------ Copy Files from Git ------------------
+def copy_files(file_list, repo_path, temp_upload_dir, commit_hash):
+    """
+    Copy files from Git to staging area.
+    Retrieves file contents from Git at the specified commit.
+    
+    Parameters:
+    file_list: List of file paths to copy
+    repo_path: Path to the Git repository
+    temp_upload_dir: Destination staging directory
+    commit_hash: Git commit hash to retrieve files from
+    """
     if os.path.exists(temp_upload_dir):
         shutil.rmtree(temp_upload_dir)
+    
     for file in file_list:
-        src = os.path.join(repo_path, file)
-        dst = os.path.join(temp_upload_dir, file)
-        if os.path.isfile(src):
-            print(f"Copying: {file}")
+        try:
+            # Get file content from Git
+            result = subprocess.run(
+                ["git", "show", f"{commit_hash}:{file}"],
+                cwd=repo_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            
+            if result.returncode != 0:
+                print(f"Warning: Could not retrieve {file} from Git, skipping.")
+                continue
+            
+            # Write file to staging directory
+            dst = os.path.join(temp_upload_dir, file)
+            print(f"Staging: {file}")
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
+            with open(dst, "wb") as f:
+                f.write(result.stdout)
+        except Exception as e:
+            print(f"Error staging {file}: {e}")
 
 
 # ------------------ FTP Upload ------------------
@@ -137,7 +163,7 @@ try:
         print("Operation cancelled by user.")
         sys.exit(0)
 
-    copy_files(changed_files, repo_path, temp_upload_dir)
+    copy_files(changed_files, repo_path, temp_upload_dir, commit2)
     upload_via_ftp(temp_upload_dir, ftp_host, ftp_user, ftp_pass, ftp_target_dir)
     print("Files uploaded successfully via FTP.")
     config["repo"]["earlier_hash"] = get_git_commit_hash(repo_path, commit2)
