@@ -111,46 +111,22 @@ def run_full_pipeline(config_file):
         return False
     
     try:
-        # Get commit hashes from user
-        commit1 = input(f"earlier hash{f' ({package_hash})' if package_hash else ''}: ").strip()
-        commit1 = commit1 if len(commit1) else package_hash
-        commit2 = input("present hash (HEAD): ").strip()
-        commit2 = commit2 if len(commit2) else 'HEAD'
-        
-        if not commit1:
-            print("Error: earlier hash is required.")
+        # Run packer (creates package and updates package_hash in config)
+        print("Running packer...")
+        ok = run_packer(config_file)
+        if not ok:
+            print("Packer failed or was cancelled. Aborting pipeline.")
             return False
-        
-        # Get changed files
-        changed_files = get_changed_files(repo_path, commit1, commit2)
-        if not changed_files:
-            print("No changed files found between the specified commits.")
-            return True
-        
-        print("Changed files:")
-        for file in changed_files:
-            print(f" - {file}")
-        
-        confirm = (
-            input("\nDo you want to proceed with packing and uploading? (yes/no): ")
-            .strip()
-            .lower()
-        )
-        if confirm != "yes":
-            print("Operation cancelled by user.")
-            return True
-        
-        # Create upload package (this updates package_hash in config)
-        from packer import create_upload_package
-        create_upload_package(changed_files, repo_path, commit2, "upload-package")
-        
-        # Upload files
-        from uploader import upload_via_ftp
-        upload_via_ftp("upload-package", "upload-spec.json", ftp_host, ftp_user, ftp_pass, ftp_target_dir)
-        
+
+        # Run uploader to upload the created package
+        print("Running uploader...")
+        ok = run_uploader(config_file)
+        if not ok:
+            print("Uploader failed or was cancelled.")
+            return False
+
         print("Pipeline completed successfully.")
         return True
-        
     except Exception as e:
         print(f"Error: {e}")
         return False
