@@ -98,7 +98,6 @@ def run_full_pipeline(config_file):
     """Run complete pipeline: pack then upload."""
     config = load_config(config_file)
     repo_path = config["repo"]["path"]
-    package_hash = config["repo"].get("package_hash", "")
     
     ftp_config = config.get("ftp", {})
     ftp_host = ftp_config.get("host")
