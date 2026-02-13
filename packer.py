@@ -215,6 +215,15 @@ def main():
         
         print(f"\nConfiguration updated with package_hash: {full_commit_hash}")
         
+        # Create deployment zip by calling the separate script
+        try:
+            script_path = os.path.join(os.path.dirname(__file__), "create-deployment-zip.py")
+            result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+            if result.returncode != 0:
+                print("Warning: Deployment zip creation failed or was cancelled.")
+        except Exception as e:
+            print(f"Warning: Failed to create deployment zip: {e}")
+        
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)

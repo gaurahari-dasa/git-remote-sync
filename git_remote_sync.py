@@ -76,7 +76,7 @@ def run_packer(config_file):
         return False
     
     # Run packer script with config file argument
-    result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
     return result.returncode == 0
 
 
@@ -89,7 +89,7 @@ def run_uploader(config_file):
         return False
     
     # Run uploader script with config file argument
-    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
+    result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
     return result.returncode == 0
 
 
