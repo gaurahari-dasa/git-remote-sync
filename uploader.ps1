@@ -10,8 +10,28 @@ function Exit-WithMessage([string]$msg, [int]$code=1){
     exit $code
 }
 
+# Verify upload package exists
+if (-not (Test-Path $UPLOAD_PACKAGE_DIR -PathType Container)) {
+    Exit-WithMessage "Upload package directory '$UPLOAD_PACKAGE_DIR' not found. Please run packer.py first to create an upload package." 1
+}
+
+$specPath = Join-Path $UPLOAD_PACKAGE_DIR $UPLOAD_SPEC_FILE
+if (-not (Test-Path $specPath)) {
+    Exit-WithMessage "Upload specification file '$UPLOAD_SPEC_FILE' not found in '$UPLOAD_PACKAGE_DIR'." 1
+}
+
+# Read upload spec to get config file path
+$specRaw = Get-Content -Raw -Path $specPath
+try {
+    $upload_spec = $specRaw | ConvertFrom-Json
+} catch {
+    Exit-WithMessage "Failed to parse upload specification JSON: $_" 1
+}
+
+# Get config file path from upload spec
+$ConfigFile = $upload_spec.config_file
 if (-not $ConfigFile) {
-    Exit-WithMessage "Usage: powershell -ExecutionPolicy Bypass -File uploader.ps1 <config_file>" 1
+    Exit-WithMessage "Config file path not found in upload specification." 1
 }
 
 if (-not (Test-Path $ConfigFile)) {
@@ -34,24 +54,6 @@ $ftp_target_dir = $ftp.target_dir
 
 if (-not ($ftp_host -and $ftp_user -and $ftp_pass -and $ftp_target_dir)) {
     Exit-WithMessage "Missing FTP configuration parameters in JSON file." 1
-}
-
-# Verify upload package exists
-if (-not (Test-Path $UPLOAD_PACKAGE_DIR -PathType Container)) {
-    Exit-WithMessage "Upload package directory '$UPLOAD_PACKAGE_DIR' not found. Please run packer.py first to create an upload package." 1
-}
-
-$specPath = Join-Path $UPLOAD_PACKAGE_DIR $UPLOAD_SPEC_FILE
-if (-not (Test-Path $specPath)) {
-    Exit-WithMessage "Upload specification file '$UPLOAD_SPEC_FILE' not found in '$UPLOAD_PACKAGE_DIR'." 1
-}
-
-# Read upload spec
-$specRaw = Get-Content -Raw -Path $specPath
-try {
-    $upload_spec = $specRaw | ConvertFrom-Json
-} catch {
-    Exit-WithMessage "Failed to parse upload specification JSON: $_" 1
 }
 
 $package_hash = $upload_spec.package_hash
