@@ -83,7 +83,7 @@ def get_git_commit_hash(repo_path: str, alias="HEAD"):
 
 
 # -------------------- Create Upload Package --------------------
-def create_upload_package(file_list, repo_path, commit_hash, package_dir):
+def create_upload_package(file_list, repo_path, commit_hash, package_dir, config_file=None):
     """
     Create upload package with numbered files and mapping specification.
     
@@ -92,6 +92,7 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     repo_path: Path to the Git repository
     commit_hash: Git commit hash to retrieve files from
     package_dir: Directory to create upload package in
+    config_file: Path to the configuration file used for this package
     
     Returns:
     Tuple of (upload_spec dict, full commit hash)
@@ -109,6 +110,7 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir):
     # Create upload specification with new structure
     upload_spec = {
         "package_hash": full_commit_hash,
+        "config_file": config_file,
         "files": {}
     }
     file_counter = 1
@@ -204,7 +206,7 @@ def main():
             sys.exit(0)
         
         # Create upload package
-        upload_spec, full_commit_hash = create_upload_package(changed_files, repo_path, commit2, UPLOAD_PACKAGE_DIR)
+        upload_spec, full_commit_hash = create_upload_package(changed_files, repo_path, commit2, UPLOAD_PACKAGE_DIR, config_file)
         
         # Update package_hash in config file
         config["repo"]["package_hash"] = full_commit_hash
