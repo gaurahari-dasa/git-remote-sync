@@ -92,12 +92,26 @@ def upload_via_ftp(package_dir, spec_file, ftp_host, ftp_user, ftp_pass, ftp_tar
 
 # -------------------- Main Execution --------------------
 def main():
-    # Get config file from command line argument
-    if len(sys.argv) < 2:
-        print("Usage: python uploader.py <config_file>")
+    # Check if upload package exists
+    if not os.path.isdir(UPLOAD_PACKAGE_DIR):
+        print(f"Upload package directory '{UPLOAD_PACKAGE_DIR}' not found.")
+        print("Please run packer.py first to create an upload package.")
         sys.exit(1)
     
-    config_file = sys.argv[1]
+    spec_filepath = os.path.join(UPLOAD_PACKAGE_DIR, UPLOAD_SPEC_FILE)
+    if not os.path.isfile(spec_filepath):
+        print(f"Upload specification file '{UPLOAD_SPEC_FILE}' not found in '{UPLOAD_PACKAGE_DIR}'.")
+        sys.exit(1)
+    
+    # Load upload specification to get config file path
+    with open(spec_filepath, "r") as f:
+        upload_spec = json.load(f)
+    
+    # Extract config file path from upload spec
+    config_file = upload_spec.get("config_file")
+    if not config_file:
+        print("Config file path not found in upload specification.")
+        sys.exit(1)
     
     if not os.path.isfile(config_file):
         print(f"Configuration file '{config_file}' not found.")
@@ -117,21 +131,7 @@ def main():
         print("Missing FTP configuration parameters in JSON file.")
         sys.exit(1)
     
-    # Check if upload package exists
-    if not os.path.isdir(UPLOAD_PACKAGE_DIR):
-        print(f"Upload package directory '{UPLOAD_PACKAGE_DIR}' not found.")
-        print("Please run packer.py first to create an upload package.")
-        sys.exit(1)
-    
-    spec_filepath = os.path.join(UPLOAD_PACKAGE_DIR, UPLOAD_SPEC_FILE)
-    if not os.path.isfile(spec_filepath):
-        print(f"Upload specification file '{UPLOAD_SPEC_FILE}' not found in '{UPLOAD_PACKAGE_DIR}'.")
-        sys.exit(1)
-    
     # Display package contents
-    with open(spec_filepath, "r") as f:
-        upload_spec = json.load(f)
-    
     # Extract package hash and files
     package_hash = upload_spec.get("package_hash")
     files_mapping = upload_spec.get("files", {})

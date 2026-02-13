@@ -90,26 +90,8 @@ $cfgTarget = $cfgTarget.Trim('/')
 
 $uploadedCount = 0
 
-function Ensure-FtpDirectoryExists([string]$ftpHost, [string]$path, [System.Net.NetworkCredential]$creds) {
-    if (-not $path) { return }
-    $segments = $path.Split('/') | Where-Object { $_ -ne '' }
-    $current = ''
-    foreach ($seg in $segments) {
-        if ($current -eq '') { $current = $seg } else { $current = "$current/$seg" }
-        $uri = "ftp://$ftpHost/$current"
-        try {
-            $req = [System.Net.FtpWebRequest]::Create($uri)
-            $req.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
-            $req.Credentials = $creds
-            $req.UseBinary = $true
-            $req.KeepAlive = $false
-            $resp = $req.GetResponse()
-            $resp.Close()
-        } catch {
-            # Directory may already exist or server may not allow explicit mkd; ignore errors
-        }
-    }
-}
+# Load FTP client assembly
+[System.Reflection.Assembly]::LoadWithPartialName("System.Net.FtpClient") | Out-Null
 
 foreach ($kv in $files_mapping.PSObject.Properties) {
     $numbered_file = $kv.Name
@@ -123,6 +105,11 @@ foreach ($kv in $files_mapping.PSObject.Properties) {
 
     $target_dir = Split-Path -Path $target_path -Parent
     $target_filename = Split-Path -Path $target_path -Leaf
+    
+    # Normalize target_dir to use forward slashes for FTP
+    if ($target_dir) {
+        $target_dir = $target_dir -replace "\\","/"
+    }
 
     # Compute full remote directory relative to host: cfgTarget + target_dir
     if ($target_dir) {
@@ -133,16 +120,46 @@ foreach ($kv in $files_mapping.PSObject.Properties) {
     $fullRemoteDir = $fullRemoteDir.Trim('/')
 
     try {
-        # Ensure remote directories exist
-        Ensure-FtpDirectoryExists -host $baseHost -path $fullRemoteDir -creds $creds
-
-        # Build upload URI
-        if ($fullRemoteDir) { $uploadUri = "ftp://$baseHost/$fullRemoteDir/$target_filename" }
-        else { $uploadUri = "ftp://$baseHost/$target_filename" }
-
-        $wc = New-Object System.Net.WebClient
-        $wc.Credentials = $creds
-        $wc.UploadFile($uploadUri, $local_file_path) | Out-Null
+        Write-Host "Uploading: $numbered_file -> $target_path"
+        
+        # Try using FtpClient if available
+        $ftpAvailable = $false
+        try {
+            $ftp = New-Object System.Net.FtpClient.FtpClient
+            $ftp.Host = $baseHost
+            $ftp.Credentials = New-Object System.Net.NetworkCredential($ftp_user, $ftp_pass)
+            $ftp.DataConnectionType = [System.Net.FtpClient.FtpDataConnectionType]::AutoPassive
+            $ftp.Connect()
+            
+            # Create directories if needed
+            if ($fullRemoteDir) {
+                $ftp.CreateDirectory($fullRemoteDir, $true)
+            }
+            
+            # Upload file
+            $fileStream = [System.IO.File]::OpenRead($local_file_path)
+            $remotePath = if ($fullRemoteDir) { "$fullRemoteDir/$target_filename" } else { $target_filename }
+            $ftp.UploadStream($fileStream, $remotePath)
+            $fileStream.Close()
+            
+            $ftp.Disconnect()
+            $ftpAvailable = $true
+        } catch {
+            # FtpClient assembly not available, fall back to WebClient
+            $ftpAvailable = $false
+        }
+        
+        if (-not $ftpAvailable) {
+            # Fallback to WebClient
+            # Build upload URI with URL encoding for special characters
+            $encodedFilename = [Uri]::EscapeDataString($target_filename)
+            if ($fullRemoteDir) { $uploadUri = "ftp://$baseHost/$fullRemoteDir/$encodedFilename" }
+            else { $uploadUri = "ftp://$baseHost/$encodedFilename" }
+            
+            $wc = New-Object System.Net.WebClient
+            $wc.Credentials = New-Object System.Net.NetworkCredential($ftp_user, $ftp_pass)
+            $wc.UploadFile($uploadUri, $local_file_path) | Out-Null
+        }
 
         Write-Host "Uploaded: $numbered_file -> $target_path"
         $uploadedCount++
