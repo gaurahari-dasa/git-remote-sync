@@ -152,12 +152,13 @@ def create_upload_package(file_list, repo_path, commit_hash, package_dir, config
 
 # -------------------- Main Execution --------------------
 def main():
-    # Get config file from command line argument
+    # Get config file and optional arguments from command line
     if len(sys.argv) < 2:
-        print("Usage: python packer.py <config_file>")
+        print("Usage: python packer.py <config_file> [--skip-zip]")
         sys.exit(1)
     
     config_file = sys.argv[1]
+    skip_zip = "--skip-zip" in sys.argv
     
     if not os.path.isfile(config_file):
         print(f"Configuration file '{config_file}' not found.")
@@ -215,14 +216,17 @@ def main():
         
         print(f"\nConfiguration updated with package_hash: {full_commit_hash}")
         
-        # Create deployment zip by calling the separate script
-        try:
-            script_path = os.path.join(os.path.dirname(__file__), "create-deployment-zip.py")
-            result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
-            if result.returncode != 0:
-                print("Warning: Deployment zip creation failed or was cancelled.")
-        except Exception as e:
-            print(f"Warning: Failed to create deployment zip: {e}")
+        # Create deployment zip by calling the separate script (unless --skip-zip is specified)
+        if not skip_zip:
+            try:
+                script_path = os.path.join(os.path.dirname(__file__), "create-deployment-zip.py")
+                result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+                if result.returncode != 0:
+                    print("Warning: Deployment zip creation failed or was cancelled.")
+            except Exception as e:
+                print(f"Warning: Failed to create deployment zip: {e}")
+        else:
+            print("(Skipped zip archive creation as requested)")
         
     except Exception as e:
         print(f"Error: {e}")

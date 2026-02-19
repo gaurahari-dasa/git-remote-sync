@@ -10,9 +10,10 @@ def show_menu():
     print("1. Run Packer (create upload package)")
     print("2. Run Uploader (upload from package)")
     print("3. Run Full Pipeline (pack and upload)")
-    print("4. Exit")
+    print("4. Archive top-level folders")
+    print("5. Exit")
     
-    choice = input("\nSelect operation (1-4): ").strip()
+    choice = input("\nSelect operation (1-5): ").strip()
     return choice
 
 
@@ -68,15 +69,24 @@ def get_git_commit_hash(repo_path: str, alias="HEAD"):
 
 
 # -------------------- Run Packer --------------------
-def run_packer(config_file):
-    """Run packer.py to create upload package."""
+def run_packer(config_file, skip_zip=False):
+    """Run packer.py to create upload package.
+    
+    Parameters:
+    config_file: Path to configuration file
+    skip_zip: If True, pass --skip-zip argument to skip archive creation
+    """
     script_path = os.path.join(os.path.dirname(__file__), "packer.py")
     if not os.path.isfile(script_path):
         print("Error: packer.py not found in the same directory.")
         return False
     
     # Run packer script with config file argument
-    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
+    args = [sys.executable, script_path, config_file]
+    if skip_zip:
+        args.append("--skip-zip")
+    
+    result = subprocess.run(args, cwd=os.getcwd())
     return result.returncode == 0
 
 
@@ -90,6 +100,19 @@ def run_uploader(config_file):
     
     # Run uploader script with config file argument
     result = subprocess.run([sys.executable, script_path], cwd=os.getcwd())
+    return result.returncode == 0
+
+
+# -------------------- Run Folder Packer --------------------
+def run_folder_packer(config_file):
+    """Run folder-packer.py to archive top-level folders."""
+    script_path = os.path.join(os.path.dirname(__file__), "folder-packer.py")
+    if not os.path.isfile(script_path):
+        print("Error: folder-packer.py not found in the same directory.")
+        return False
+    
+    # Run folder-packer script with config file argument
+    result = subprocess.run([sys.executable, script_path, config_file], cwd=os.getcwd())
     return result.returncode == 0
 
 
@@ -110,9 +133,9 @@ def run_full_pipeline(config_file):
         return False
     
     try:
-        # Run packer (creates package and updates package_hash in config)
+        # Run packer with --skip-zip flag since we don't need zip archive during pipeline
         print("Running packer...")
-        ok = run_packer(config_file)
+        ok = run_packer(config_file, skip_zip=True)
         if not ok:
             print("Packer failed or was cancelled. Aborting pipeline.")
             return False
@@ -160,11 +183,18 @@ def main():
                 print("Full pipeline failed or was cancelled.")
         
         elif choice == "4":
+            print("\n--- Archiving Top-Level Folders ---")
+            if run_folder_packer(config_file):
+                print("Folder archiving completed successfully.")
+            else:
+                print("Folder archiving failed or was cancelled.")
+        
+        elif choice == "5":
             print("Exiting...")
             sys.exit(0)
         
         else:
-            print("Invalid choice. Please select 1-4.")
+            print("Invalid choice. Please select 1-5.")
 
 
 if __name__ == "__main__":
