@@ -269,30 +269,61 @@ def main():
     
     # Check if arch_folders property exists in config
     arch_folders = config.get("arch_folders", None)
-    
     if arch_folders is None:
         print("Error: 'arch_folders' property not defined in configuration file.")
         print("Nothing to do.")
         sys.exit(0)
-    
-    if not arch_folders:
-        print("Error: 'arch_folders' list is empty in configuration file.")
-        print("Nothing to do.")
+    if not isinstance(arch_folders, list):
+        print("Error: 'arch_folders' must be a list in configuration file.")
         sys.exit(0)
-    
+
     # Get commit hash from user
     commit_hash = input("commit hash to archive (HEAD): ").strip()
     commit_hash = commit_hash if len(commit_hash) else 'HEAD'
-    
+
     # First, resolve the commit hash in the original repo
     full_commit_hash = get_git_commit_hash(repo_path, commit_hash)
     if not full_commit_hash:
         print("Error: Could not resolve commit hash.")
         sys.exit(1)
-    
+
+    # Get the package_hash from config
+    package_hash = config["repo"].get("package_hash", None)
+    if not package_hash:
+        print("Error: 'package_hash' not found in config.")
+        sys.exit(1)
+
+    # Find changed files between package_hash and commit_hash
+    try:
+        result = subprocess.run([
+            "git", "diff", "--name-only", package_hash, full_commit_hash
+        ], cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error running git diff: {result.stderr}")
+            sys.exit(1)
+        changed_files = result.stdout.strip().splitlines()
+    except Exception as e:
+        print(f"Error running git diff: {e}")
+        sys.exit(1)
+
+    # Extract top-level folders from changed files
+    top_level_folders = set()
+    for f in changed_files:
+        parts = f.replace("\\", "/").split("/")
+        if len(parts) > 1:
+            top_level_folders.add(parts[0])
+        elif len(parts) == 1 and os.path.dirname(f) == '':
+            # file at repo root, skip
+            continue
+
+    # Merge unique top-level folders into arch_folders
+    arch_folders_set = set(arch_folders)
+    arch_folders_set.update(top_level_folders)
+    arch_folders = list(arch_folders_set)
+
     print(f"\nPreparing to archive folders from commit: {full_commit_hash}")
     print(f"Folders to archive: {', '.join(arch_folders)}")
-    
+
     # Confirm before proceeding
     confirm = (
         input("\nDo you want to proceed with archiving these folders? (yes/no): ")
