@@ -4,16 +4,17 @@ import json
 import subprocess
 
 # -------------------- Display Menu --------------------
-def show_menu():
+def show_menu(config_file):
     """Display operation menu and get user choice."""
-    print("\n=== git-remote-sync ===")
+    print(f"\n=== git-remote-sync (Config: {os.path.basename(config_file)}) ===")
+    print("0. Change config file")
     print("1. Run Packer (create upload package)")
     print("2. Run Uploader (upload from package)")
     print("3. Run Full Pipeline (pack and upload)")
     print("4. Archive top-level folders")
     print("5. Exit")
     
-    choice = input("\nSelect operation (1-5): ").strip()
+    choice = input("\nSelect operation (0-5): ").strip()
     return choice
 
 
@@ -159,9 +160,14 @@ def main():
     config_file = input("config file: ")
     
     while True:
-        choice = show_menu()
+        choice = show_menu(config_file)
         
-        if choice == "1":
+        if choice == "0":
+            config_file = input("Enter new config file: ").strip()
+            if not os.path.isfile(config_file):
+                print(f"Warning: Config file '{config_file}' not found. You can still proceed but operations may fail.")
+        
+        elif choice == "1":
             print("\n--- Running Packer ---")
             if run_packer(config_file):
                 print("Packer completed successfully.")
@@ -194,7 +200,7 @@ def main():
             sys.exit(0)
         
         else:
-            print("Invalid choice. Please select 1-5.")
+            print("Invalid choice. Please select 0-5.")
 
 
 if __name__ == "__main__":
