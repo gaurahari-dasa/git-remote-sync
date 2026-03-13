@@ -69,9 +69,52 @@ def init_temp_checkout(original_repo_path: str, temp_checkout_path: str, commit_
         return False
 
 
-# -------------------- Copy Folder from Source --------------------
+# -------------------- Copy Item (File or Folder) --------------------
+def copy_item(source_path: str, dest_path: str):
+    """
+    Copy an item (file or folder) from source to destination.
+    For folders, recursively copies all subfolders and files.
+    For files, copies with metadata preservation.
+    
+    Parameters:
+    source_path: Source file or folder path
+    dest_path: Destination file or folder path
+    
+    Returns:
+    bool: True if successful, False otherwise
+    """
+    try:
+        if not os.path.exists(source_path):
+            return False
+        
+        if os.path.exists(dest_path):
+            if os.path.isdir(dest_path):
+                shutil.rmtree(dest_path)
+            else:
+                os.remove(dest_path)
+        
+        # Handle directories
+        if os.path.isdir(source_path):
+            shutil.copytree(source_path, dest_path, dirs_exist_ok=False)
+            item_name = os.path.basename(source_path)
+            print(f"Copied directory (recursive): {item_name}")
+            return True
+        # Handle files
+        else:
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            shutil.copy2(source_path, dest_path)
+            item_name = os.path.basename(source_path)
+            print(f"Copied file: {item_name}")
+            return True
+    except Exception as e:
+        print(f"Error copying item: {e}")
+        return False
+
+
+# -------------------- Copy Folder from Source (Legacy) --------------------
 def copy_folder(source_path: str, dest_path: str):
     """
+    Legacy wrapper. Use copy_item() instead.
     Copy a folder from source to destination, including all subfolders and files recursively.
     
     Parameters:
@@ -81,21 +124,7 @@ def copy_folder(source_path: str, dest_path: str):
     Returns:
     bool: True if successful, False otherwise
     """
-    try:
-        if not os.path.isdir(source_path):
-            return False
-        
-        if os.path.exists(dest_path):
-            shutil.rmtree(dest_path)
-        
-        # shutil.copytree recursively copies all subdirectories and files
-        shutil.copytree(source_path, dest_path, dirs_exist_ok=False)
-        folder_name = os.path.basename(source_path)
-        print(f"Copied folder (recursive): {folder_name}")
-        return True
-    except Exception as e:
-        print(f"Error copying folder: {e}")
-        return False
+    return copy_item(source_path, dest_path)
 
 
 # -------------------- Merge Missing Entries --------------------
@@ -267,14 +296,14 @@ def main():
         print(f"Repository path not found: {repo_path}")
         sys.exit(1)
     
-    # Check if arch_folders property exists in config
-    arch_folders = config.get("arch_folders", None)
-    if arch_folders is None:
-        print("Error: 'arch_folders' property not defined in configuration file.")
+    # Check if include_items property exists in config
+    include_items = config.get("include_items", None)
+    if include_items is None:
+        print("Error: 'include_items' property not defined in configuration file.")
         print("Nothing to do.")
         sys.exit(0)
-    if not isinstance(arch_folders, list):
-        print("Error: 'arch_folders' must be a list in configuration file.")
+    if not isinstance(include_items, list):
+        print("Error: 'include_items' must be a list in configuration file.")
         sys.exit(0)
 
     # Get commit hash from user
@@ -316,17 +345,36 @@ def main():
             # file at repo root, skip
             continue
 
-    # Merge unique top-level folders into arch_folders
-    arch_folders_set = set(arch_folders)
-    arch_folders_set.update(top_level_folders)
-    arch_folders = list(arch_folders_set)
+    # Merge unique top-level folders into include_items
+    include_items_set = set(include_items)
+    include_items_set.update(top_level_folders)
+    include_items = list(include_items_set)
 
-    print(f"\nPreparing to archive folders from commit: {full_commit_hash}")
-    print(f"Folders to archive: {', '.join(arch_folders)}")
+    # Read exclude_folders from config (optional)
+    exclude_folders = config.get("exclude_folders", [])
+    if not isinstance(exclude_folders, list):
+        print("Warning: 'exclude_folders' must be a list in configuration file. Ignoring.")
+        exclude_folders = []
+
+    # Filter out excluded folders from include_items
+    exclude_folders_set = set(exclude_folders)
+    final_items = [item for item in include_items if item not in exclude_folders_set]
+    excluded_items = [item for item in include_items if item in exclude_folders_set]
+
+    print(f"\nPreparing to archive items from commit: {full_commit_hash}")
+    if excluded_items:
+        print(f"Excluded folders: {', '.join(excluded_items)}")
+    if final_items:
+        print(f"Items to archive: {', '.join(final_items)}")
+    else:
+        print("No items to archive after filtering.")
+        sys.exit(0)
+
+    include_items = final_items
 
     # Confirm before proceeding
     confirm = (
-        input("\nDo you want to proceed with archiving these folders? (yes/no): ")
+        input("\nDo you want to proceed with archiving these items? (yes/no): ")
         .strip()
         .lower()
     )
@@ -354,43 +402,54 @@ def main():
         shutil.rmtree(temp_archive_dir)
     os.makedirs(temp_archive_dir, exist_ok=True)
     
-    # Collect all folders to be archived
-    collected_folders = 0
-    for folder_name in arch_folders:
-        # First check if folder exists in the checked-out commit
-        folder_in_checkout = os.path.join(temp_checkout_path, folder_name)
+    # Collect all items (files or folders) to be archived
+    collected_items = 0
+    for item_name in include_items:
+        # First check if item exists in the checked-out commit
+        item_in_checkout = os.path.join(temp_checkout_path, item_name)
         
-        if os.path.isdir(folder_in_checkout):
-            # Folder exists in the checked-out commit, copy from there
-            work_folder = os.path.join(temp_archive_dir, folder_name)
-            if copy_folder(folder_in_checkout, work_folder):
-                # Merge any untracked or additional files/folders present in the
-                # original repo's working directory but not present in the
+        if os.path.exists(item_in_checkout):
+            # Item exists in the checked-out commit, copy from there
+            work_item = os.path.join(temp_archive_dir, item_name)
+            if copy_item(item_in_checkout, work_item):
+                # If it's a directory, merge any untracked or additional files/folders
+                # present in the original repo's working directory but not present in the
                 # checked-out commit (e.g. generated 'build' folders).
-                folder_in_original = os.path.join(repo_path, folder_name)
-                merge_missing_from_original(folder_in_original, work_folder)
-                collected_folders += 1
+                if os.path.isdir(work_item):
+                    item_in_original = os.path.join(repo_path, item_name)
+                    merge_missing_from_original(item_in_original, work_item)
+                collected_items += 1
         else:
-            # Folder doesn't exist in checked-out commit, try to copy from original repo
-            folder_in_original = os.path.join(repo_path, folder_name)
+            # Item doesn't exist in checked-out commit, try to copy from original repo
+            item_in_original = os.path.join(repo_path, item_name)
             
-            if os.path.isdir(folder_in_original):
-                print(f"Note: '{folder_name}' not in checked-out commit, copying from original repo...")
-                work_folder = os.path.join(temp_archive_dir, folder_name)
-                if copy_folder(folder_in_original, work_folder):
-                    collected_folders += 1
+            if os.path.exists(item_in_original):
+                print(f"Note: '{item_name}' not in checked-out commit, copying from original repo...")
+                work_item = os.path.join(temp_archive_dir, item_name)
+                if copy_item(item_in_original, work_item):
+                    collected_items += 1
             else:
-                print(f"✗ Folder not found in commit or original repo: {folder_name}")
+                print(f"✗ Item not found in commit or original repo: {item_name}")
     
-    # Create single archive containing all collected folders
-    if collected_folders > 0:
+    # Create single archive containing all collected items
+    if collected_items > 0:
         # Use short commit hash (first 8 characters) in archive name
         short_hash = full_commit_hash[:8]
         archive_name = os.path.join(ARCHIVE_OUTPUT_DIR, f"archive_{short_hash}.zip")
-        print(f"\nCreating combined archive with {collected_folders} folders...")
+        print(f"\nCreating combined archive with {collected_items} items...")
         
         if create_folder_archive(temp_archive_dir, archive_name):
             print(f"✓ Combined archive created successfully: {archive_name}")
+            # Update package_hash in config file to the archived commit
+            try:
+                with open(config_file, "r") as f:
+                    config_data = json.load(f)
+                config_data["repo"]["package_hash"] = full_commit_hash
+                with open(config_file, "w") as f:
+                    json.dump(config_data, f, indent=2)
+                print(f"Updated package_hash in config to {full_commit_hash}")
+            except Exception as e:
+                print(f"Warning: Failed to update package_hash in config: {e}")
         else:
             print("Error: Failed to create combined archive.")
             cleanup_temp_checkout(temp_checkout_path)
@@ -405,7 +464,7 @@ def main():
     
     # Summary
     print(f"\n{'='*50}")
-    print(f"Archived {collected_folders}/{len(arch_folders)} folders")
+    print(f"Archived {collected_items}/{len(include_items)} items")
     print(f"Archive saved to: {archive_name}")
     print(f"Commit: {full_commit_hash}")
     print(f"{'='*50}")
