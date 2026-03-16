@@ -3,70 +3,11 @@ import sys
 import json
 import subprocess
 import shutil
-from datetime import datetime
-import stat
+from builder import build
+from repo_manager import setup_repo
 
 # Archive output directory
 ARCHIVE_OUTPUT_DIR = "folder-archives"
-
-# Temporary checkout directory (relative to current working directory)
-TEMP_CHECKOUT_DIR = "_checkout_temp"
-
-
-# -------------------- Initialize Temporary Checkout --------------------
-def init_temp_checkout(original_repo_path: str, temp_checkout_path: str, commit_hash: str):
-    """
-    Initialize a temporary Git repository and check out a specific commit.
-    Uses git clone with sparse checkout or full clone depending on requirements.
-    
-    Parameters:
-    original_repo_path: Path to the original Git repository
-    temp_checkout_path: Path where temporary checkout will be created
-    commit_hash: Git commit hash or alias to check out
-    
-    Returns:
-    bool: True if successful, False otherwise
-    """
-    try:
-        # Clean up if temp directory already exists
-        if os.path.exists(temp_checkout_path):
-            safe_rmtree(temp_checkout_path)
-
-        # Initialize git repo from original repo (don't pre-create target dir;
-        # let `git clone` create it). Use --no-hardlinks to avoid hardlinking
-        # objects when cloning from a local repository which can cause
-        # permission/cleanup issues on Windows.
-        print(f"Initializing temporary checkout at: {temp_checkout_path}")
-        
-        # Clone from the original repository to the temporary location
-        result = subprocess.run(
-            ["git", "clone", "--no-hardlinks", original_repo_path, temp_checkout_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if result.returncode != 0:
-            print(f"Error cloning repository: {result.stderr}")
-            return False
-        
-        # Checkout the specific commit in the temporary location
-        print(f"Checking out commit: {commit_hash}")
-        result = subprocess.run(
-            ["git", "checkout", commit_hash],
-            cwd=temp_checkout_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if result.returncode != 0:
-            print(f"Error checking out commit {commit_hash}: {result.stderr}")
-            return False
-        
-        print(f"Successfully checked out commit in temporary location")
-        return True
-    except Exception as e:
-        print(f"Exception during temporary checkout initialization: {e}")
-        return False
 
 
 # -------------------- Copy Item (File or Folder) --------------------
@@ -109,105 +50,6 @@ def copy_item(source_path: str, dest_path: str):
     except Exception as e:
         print(f"Error copying item: {e}")
         return False
-
-
-# -------------------- Copy Folder from Source (Legacy) --------------------
-def copy_folder(source_path: str, dest_path: str):
-    """
-    Legacy wrapper. Use copy_item() instead.
-    Copy a folder from source to destination, including all subfolders and files recursively.
-    
-    Parameters:
-    source_path: Source folder path
-    dest_path: Destination folder path
-    
-    Returns:
-    bool: True if successful, False otherwise
-    """
-    return copy_item(source_path, dest_path)
-
-
-# -------------------- Merge Missing Entries --------------------
-def merge_missing_from_original(original_path: str, dest_path: str):
-    """
-    After copying a folder from the checked-out clone, merge any files or
-    subfolders that exist in the original repo but were not present in the
-    checked-out commit (e.g. untracked build/ folders).
-
-    This will copy only entries that are missing in dest_path; it will not
-    overwrite existing files in dest_path.
-    """
-    try:
-        if not os.path.isdir(original_path):
-            return
-
-        for entry in os.listdir(original_path):
-            src_entry = os.path.join(original_path, entry)
-            dst_entry = os.path.join(dest_path, entry)
-
-            # If entry already exists in destination, skip
-            if os.path.exists(dst_entry):
-                continue
-
-            # Copy directories recursively, files with metadata
-            if os.path.isdir(src_entry):
-                try:
-                    shutil.copytree(src_entry, dst_entry)
-                    print(f"Merged missing directory: {entry}")
-                except Exception as e:
-                    print(f"Warning: failed to copy directory '{entry}': {e}")
-            else:
-                try:
-                    shutil.copy2(src_entry, dst_entry)
-                    print(f"Merged missing file: {entry}")
-                except Exception as e:
-                    print(f"Warning: failed to copy file '{entry}': {e}")
-    except Exception as e:
-        print(f"Warning: error while merging from original: {e}")
-
-
-# -------------------- Cleanup Temporary Checkout --------------------
-def cleanup_temp_checkout(temp_checkout_path: str):
-    """
-    Remove the temporary checkout directory.
-    
-    Parameters:
-    temp_checkout_path: Path to the temporary checkout directory
-    """
-    try:
-        if os.path.exists(temp_checkout_path):
-            safe_rmtree(temp_checkout_path)
-            print(f"Cleaned up temporary checkout directory")
-    except Exception as e:
-        print(f"Warning: Failed to cleanup temporary directory: {e}")
-
-
-def safe_rmtree(path):
-    """Remove a path like shutil.rmtree but try to fix permission errors on Windows.
-
-    Attempts to make files writable before retrying removal.
-    """
-    def _onerror(func, p, exc_info):
-        try:
-            os.chmod(p, stat.S_IWRITE)
-        except Exception:
-            try:
-                os.chmod(p, 0o700)
-            except Exception:
-                pass
-        try:
-            func(p)
-        except Exception:
-            # last resort: if it's a file try unlink
-            try:
-                if os.path.isdir(p):
-                    shutil.rmtree(p)
-                else:
-                    os.remove(p)
-            except Exception:
-                pass
-
-    shutil.rmtree(path, onerror=_onerror)
 
 
 # -------------------- Get Git Commit Hash --------------------
@@ -287,13 +129,11 @@ def main():
     with open(config_file, "r") as f:
         config = json.load(f)
     
-    repo_path = config["repo"]["path"]
+    # Set up the repository
+    repo_path = setup_repo(config)
     
-    # Normalize path separators
-    repo_path = repo_path.replace("/", os.sep)
-    
-    if not os.path.isdir(repo_path):
-        print(f"Repository path not found: {repo_path}")
+    if not repo_path:
+        print("Failed to set up repository.")
         sys.exit(1)
     
     # Check if include_items property exists in config
@@ -306,9 +146,16 @@ def main():
         print("Error: 'include_items' must be a list in configuration file.")
         sys.exit(0)
 
-    # Get commit hash from user
-    commit_hash = input("commit hash to archive (HEAD): ").strip()
-    commit_hash = commit_hash if len(commit_hash) else 'HEAD'
+    # Run build commands if specified
+    if "build" in config:
+        print("Running build commands...")
+        if not build(config, repo_path):
+            print("Build failed.")
+            sys.exit(1)
+        print("Build completed.")
+
+    # Use HEAD as the commit to archive
+    commit_hash = 'HEAD'
 
     # First, resolve the commit hash in the original repo
     full_commit_hash = get_git_commit_hash(repo_path, commit_hash)
@@ -382,14 +229,7 @@ def main():
         print("Operation cancelled by user.")
         sys.exit(0)
     
-    # Create temporary checkout
-    temp_checkout_path = os.path.join(os.getcwd(), TEMP_CHECKOUT_DIR)
-    print(f"\nInitializing temporary checkout at: {temp_checkout_path}")
-    
-    if not init_temp_checkout(repo_path, temp_checkout_path, commit_hash):
-        print("Error: Failed to initialize temporary checkout.")
-        cleanup_temp_checkout(temp_checkout_path)
-        sys.exit(1)
+    # Use the repository path directly (already at HEAD from setup_repo)
     
     # Create output directory for archives
     if os.path.exists(ARCHIVE_OUTPUT_DIR):
@@ -397,7 +237,7 @@ def main():
     os.makedirs(ARCHIVE_OUTPUT_DIR, exist_ok=True)
     
     # Prepare temporary directory for collecting folders to archive
-    temp_archive_dir = os.path.join(temp_checkout_path, ".archive_work")
+    temp_archive_dir = os.path.join(repo_path, ".archive_work")
     if os.path.exists(temp_archive_dir):
         shutil.rmtree(temp_archive_dir)
     os.makedirs(temp_archive_dir, exist_ok=True)
@@ -405,31 +245,16 @@ def main():
     # Collect all items (files or folders) to be archived
     collected_items = 0
     for item_name in include_items:
-        # First check if item exists in the checked-out commit
-        item_in_checkout = os.path.join(temp_checkout_path, item_name)
+        # Check if item exists in the repository
+        item_in_repo = os.path.join(repo_path, item_name)
         
-        if os.path.exists(item_in_checkout):
-            # Item exists in the checked-out commit, copy from there
+        if os.path.exists(item_in_repo):
+            # Item exists, copy from there
             work_item = os.path.join(temp_archive_dir, item_name)
-            if copy_item(item_in_checkout, work_item):
-                # If it's a directory, merge any untracked or additional files/folders
-                # present in the original repo's working directory but not present in the
-                # checked-out commit (e.g. generated 'build' folders).
-                if os.path.isdir(work_item):
-                    item_in_original = os.path.join(repo_path, item_name)
-                    merge_missing_from_original(item_in_original, work_item)
+            if copy_item(item_in_repo, work_item):
                 collected_items += 1
         else:
-            # Item doesn't exist in checked-out commit, try to copy from original repo
-            item_in_original = os.path.join(repo_path, item_name)
-            
-            if os.path.exists(item_in_original):
-                print(f"Note: '{item_name}' not in checked-out commit, copying from original repo...")
-                work_item = os.path.join(temp_archive_dir, item_name)
-                if copy_item(item_in_original, work_item):
-                    collected_items += 1
-            else:
-                print(f"✗ Item not found in commit or original repo: {item_name}")
+            print(f"✗ Item not found: {item_name}")
     
     # Create single archive containing all collected items
     if collected_items > 0:
@@ -452,15 +277,15 @@ def main():
                 print(f"Warning: Failed to update package_hash in config: {e}")
         else:
             print("Error: Failed to create combined archive.")
-            cleanup_temp_checkout(temp_checkout_path)
             sys.exit(1)
     else:
         print("Error: No folders were collected for archiving.")
-        cleanup_temp_checkout(temp_checkout_path)
         sys.exit(1)
     
-    # Cleanup temporary directory
-    cleanup_temp_checkout(temp_checkout_path)
+    # Clean up temporary archive directory
+    if os.path.exists(temp_archive_dir):
+        shutil.rmtree(temp_archive_dir)
+        print("Cleaned up temporary archive directory.")
     
     # Summary
     print(f"\n{'='*50}")

@@ -121,7 +121,7 @@ def run_folder_packer(config_file):
 def run_full_pipeline(config_file):
     """Run complete pipeline: pack then upload."""
     config = load_config(config_file)
-    repo_path = config["repo"]["path"]
+    repo_path = config["repo"]["uri"]
     
     ftp_config = config.get("ftp", {})
     ftp_host = ftp_config.get("host")

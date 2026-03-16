@@ -3,6 +3,8 @@ import sys
 import json
 import subprocess
 import shutil
+from builder import build
+from repo_manager import setup_repo
 
 # Upload package directory
 UPLOAD_PACKAGE_DIR = "upload-package"
@@ -53,10 +55,16 @@ def get_file_from_git(repo_path, commit_hash, file_path):
         stderr=subprocess.PIPE,
     )
     
-    if result.returncode != 0:
-        return None
+    if result.returncode == 0:
+        return result.stdout
     
-    return result.stdout
+    # Try to read from filesystem if git show failed
+    file_path_full = os.path.join(repo_path, file_path)
+    if os.path.isfile(file_path_full):
+        with open(file_path_full, "rb") as f:
+            return f.read()
+    
+    return None
 
 
 # -------------------- Get Git Commit Hash --------------------
@@ -167,18 +175,25 @@ def main():
     with open(config_file, "r") as f:
         config = json.load(f)
     
-    repo_path = config["repo"]["path"]
+    # Set up the repository
+    repo_path = setup_repo(config)
     package_hash = config["repo"].get("package_hash", "")
     
     if not repo_path:
-        print("Missing 'repo.path' in configuration file.")
+        print("Failed to set up repository.")
         sys.exit(1)
     
-    # Get commit hashes from user
-    commit1 = input(f"earlier hash{f' ({package_hash})' if package_hash else ''}: ").strip()
-    commit1 = commit1 if len(commit1) else package_hash
-    commit2 = input("present hash (HEAD): ").strip()
-    commit2 = commit2 if len(commit2) else 'HEAD'
+    # Run build commands if specified
+    if "build" in config:
+        print("Running build commands...")
+        if not build(config, repo_path):
+            print("Build failed.")
+            sys.exit(1)
+        print("Build completed.")
+    
+    # Use package_hash as earlier commit and HEAD as present commit
+    commit1 = package_hash
+    commit2 = 'HEAD'
     
     if not commit1:
         print("Error: earlier hash is required.")
@@ -188,11 +203,33 @@ def main():
         # Get changed files
         changed_files = get_changed_files(repo_path, commit1, commit2)
         
+        # Exclude files whose top-level folders are in exclude_folders
+        exclude_folders = config.get("exclude_folders", [])
+        if exclude_folders:
+            changed_files = [f for f in changed_files if not any(f.startswith(ex + "/") or f == ex for ex in exclude_folders)]
+        
+        # Include additional items from include_items
+        include_items = config.get("include_items", [])
+        for item in include_items:
+            item_path = os.path.join(repo_path, item)
+            if os.path.isfile(item_path):
+                rel_path = item.replace("\\", "/")  # normalize to forward slashes
+                if rel_path not in changed_files:
+                    changed_files.append(rel_path)
+            elif os.path.isdir(item_path):
+                # Recursively add all files in the folder
+                for root, dirs, files in os.walk(item_path):
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(full_path, repo_path).replace("\\", "/")
+                        if rel_path not in changed_files:
+                            changed_files.append(rel_path)
+        
         if not changed_files:
-            print("No changed files found between the specified commits.")
+            print("No files to package after filtering.")
             sys.exit(0)
         
-        print("Changed files:")
+        print("Files to package:")
         for file in changed_files:
             print(f" - {file}")
         

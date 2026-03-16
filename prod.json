@@ -1,7 +1,8 @@
 {
     "repo": {
-        "path": "D:/Users/gaurahari/Projects/krishna-life",
-        "earlier_hash": ""
+        "uri": "D:/Users/gaurahari/Projects/krishna-life",
+        "earlier_hash": "",
+        "release_branch": "main"
     },
     "ftp": {
         "host": "",
@@ -10,5 +11,11 @@
         "target_dir": "/web-app"
     },
     "include_items": [],
-    "exclude_folders": []
+    "exclude_folders": [],
+    "build": {
+        "commands": [
+            "copy /Y env.prod env",
+            "nvs exec node/22.12.0/x64 npm run build"
+        ]
+    }
 }
