@@ -20,7 +20,9 @@ def setup_repo(config):
     if uri.startswith(("http://", "https://", "git@", "ssh://")):
         # Remote repository - extract repo name for local directory
         repo_name = re.sub(r'\.git$', '', uri.split('/')[-1])
-        local_path = os.path.join(os.getcwd(), repo_name)
+        repos_dir = os.path.join(os.getcwd(), ".repos")
+        os.makedirs(repos_dir, exist_ok=True)
+        local_path = os.path.join(repos_dir, repo_name)
         
         if not os.path.exists(local_path):
             print(f"Cloning repository from {uri} to {local_path}")

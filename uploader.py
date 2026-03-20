@@ -44,45 +44,74 @@ def upload_via_ftp(package_dir, spec_file, ftp_host, ftp_user, ftp_pass, ftp_tar
     try:
         for numbered_file, target_path in files_mapping.items():
             
-            try:
-                # Get full path to numbered file
-                local_file_path = os.path.join(package_dir, numbered_file)
-                
-                if not os.path.isfile(local_file_path):
-                    print(f"Warning: File not found in package: {numbered_file}, skipping.")
-                    continue
-                
-                # Split target path into directory and filename
-                target_dir = os.path.dirname(target_path)
-                target_filename = os.path.basename(target_path)
-                
-                # Navigate to or create target directory
-                if target_dir:
-                    # Convert Windows-style paths to forward slashes for FTP
-                    ftp_target_dir_normalized = target_dir.replace(os.sep, "/")
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # Get full path to numbered file
+                    local_file_path = os.path.join(package_dir, numbered_file)
                     
-                    # Create directories if needed
-                    for dir_part in ftp_target_dir_normalized.split("/"):
-                        if dir_part:
+                    if not os.path.isfile(local_file_path):
+                        print(f"Warning: File not found in package: {numbered_file}, skipping.")
+                        break
+                    
+                    # Split target path into directory and filename
+                    target_dir = os.path.dirname(target_path)
+                    target_filename = os.path.basename(target_path)
+                    
+                    # Navigate to or create target directory
+                    if target_dir:
+                        # Convert Windows-style paths to forward slashes for FTP
+                        ftp_target_dir_normalized = target_dir.replace(os.sep, "/")
+                        
+                        # Create directories if needed
+                        for dir_part in ftp_target_dir_normalized.split("/"):
+                            if dir_part:
+                                try:
+                                    ftp.mkd(dir_part)
+                                except:
+                                    # Directory might already exist
+                                    pass
+                                ftp.cwd(dir_part)
+                    
+                    # Upload file
+                    with open(local_file_path, "rb") as f:
+                        ftp.storbinary(f"STOR {target_filename}", f)
+                    
+                    print(f"Uploaded: {numbered_file} -> {target_path}")
+                    uploaded_count += 1
+                    
+                    # Return to target directory
+                    ftp.cwd(ftp_target_dir)
+                    
+                    # Success, break out of retry loop
+                    break
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        if attempt == 1:  # Second attempt (0-indexed), reconnect before retrying
+                            print(f"Error uploading {numbered_file} (attempt {attempt + 1}/{max_retries}): {e}. Reconnecting and retrying...")
                             try:
-                                ftp.mkd(dir_part)
+                                ftp.quit()
                             except:
-                                # Directory might already exist
                                 pass
-                            ftp.cwd(dir_part)
-                
-                # Upload file
-                with open(local_file_path, "rb") as f:
-                    ftp.storbinary(f"STOR {target_filename}", f)
-                
-                print(f"Uploaded: {numbered_file} -> {target_path}")
-                uploaded_count += 1
-                
-                # Return to target directory
-                ftp.cwd(ftp_target_dir)
-                
-            except Exception as e:
-                print(f"Error uploading {numbered_file}: {e}")
+                            # Reconnect to FTP
+                            ftp = FTP(ftp_host)
+                            ftp.login(ftp_user, ftp_pass)
+                            ftp.cwd(ftp_target_dir)
+                        else:
+                            print(f"Error uploading {numbered_file} (attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
+                            # Ensure we're back at target directory before retry
+                            try:
+                                ftp.cwd(ftp_target_dir)
+                            except:
+                                pass  # If this fails, we'll try to reconnect or something, but for now continue
+                    else:
+                        print(f"Error uploading {numbered_file} after {max_retries} attempts: {e}")
+                        # Ensure we're back at target directory for next file
+                        try:
+                            ftp.cwd(ftp_target_dir)
+                        except:
+                            pass
     
     finally:
         ftp.quit()
